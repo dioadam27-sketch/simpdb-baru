@@ -1,5 +1,5 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/ppk2ipe/public_html/simpdb.ppk2ipe.unair.ac.id
-    - /bin/cp -a * $DEPLOYPATH
+    - export DEPLOYPATH=/home/ppk2ipe/public_html/appspdb
+    - /bin/cp -a dist/* $DEPLOYPATH
