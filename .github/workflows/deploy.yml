@@ -20,3 +20,8 @@ jobs:
         username: ${{ secrets.CPANEL_USERNAME }}
         password: ${{ secrets.CPANEL_PASSWORD }}
         server-dir: ./public_html/appspb1/
+- name: 🛠️ Install dependencies
+      run: npm install
+
+    - name: 🏗️ Build project
+      run: npm run build
