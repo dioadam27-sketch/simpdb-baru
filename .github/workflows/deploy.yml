@@ -3,7 +3,7 @@ name: 🚀 Deploy to CPanel
 on:
   push:
     branches:
-      - main  # Memastikan jalan di branch main sesuai tampilan Anda
+      - main  # Ubah ini dari 'ci/add-deploy-to-cpanel' menjadi 'main'
 
 jobs:
   web-deploy:
@@ -19,5 +19,4 @@ jobs:
         server: ${{ secrets.CPANEL_HOST }}
         username: ${{ secrets.CPANEL_USERNAME }}
         password: ${{ secrets.CPANEL_PASSWORD }}
-        # Path ini disesuaikan dengan Repository Path di cPanel Anda
-        server-dir: public_html/appspb1/
+        server-dir: public_html/appspb1
