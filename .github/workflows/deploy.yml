@@ -11,11 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: 🚚 Get latest code
-    - name: 🛠️ Install dependencies
-      run: npm install
-
-    - name: 🏗️ Build project
-      run: npm run build
       uses: actions/checkout@v4
 
     - name: 📂 Sync files to CPanel
