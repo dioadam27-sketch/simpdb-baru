@@ -1,5 +1,5 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/ppk2ipe/public_html/appspdb
-    - /bin/cp -a dist/* $DEPLOYPATH
+    - export DEPLOYPATH=/home/ppk2ipe/public_html/appspdb1
+    - /bin/cp -a * $DEPLOYPATH
