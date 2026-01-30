@@ -15,9 +15,8 @@ jobs:
 
     - name: 📂 Sync files to CPanel
       uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-     with:
+      with:
         server: ${{ secrets.CPANEL_HOST }}
         username: ${{ secrets.CPANEL_USERNAME }}
         password: ${{ secrets.CPANEL_PASSWORD }}
-        # Ubah baris di bawah ini agar sesuai dengan path di cPanel Anda
         server-dir: public_html/appspb1/
