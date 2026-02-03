@@ -184,7 +184,7 @@ const App: React.FC = () => {
  }, [lecturers, schedule]);
 
   const coordinatorStats = useMemo(() => {
-    const uniqueCoordinatorIds = Array.from(new Set(courses.map(c => c.coordinatorId).filter(id => id && id.trim() !== '')));
+    const uniqueCoordinatorIds = Array.from(new Set(courses.map(c => c.coordinatorId).filter(id => id && id && id.trim() !== '')));
     const details = uniqueCoordinatorIds.map(coordId => {
         const lecturer = lecturers.find(l => l.id === coordId);
         const name = lecturer?.name || 'Unknown';

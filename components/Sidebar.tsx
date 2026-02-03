@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, BookOpen, Users, Building2, Calendar, Menu, X, UserCheck, LogOut, CalendarClock, Activity, Settings, Layers, Key, ClipboardCheck, BarChart3, Banknote, ChevronRight, RefreshCw, Zap } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Users, Building2, Calendar, Menu, X, UserCheck, LogOut, CalendarClock, Activity, Settings, Layers, Key, ClipboardCheck, BarChart3, Banknote, ChevronRight, RefreshCw } from 'lucide-react';
 import { ViewState, UserRole } from '../types';
 
 interface SidebarProps {

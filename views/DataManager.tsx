@@ -1,5 +1,5 @@
-
 import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Plus, Edit2, Trash2, Upload, RefreshCw, X, Search, 
   FileSpreadsheet, ArrowUpDown, ArrowUp, ArrowDown, Check, ChevronDown
@@ -125,58 +125,25 @@ const DataManager = <T extends { id: string }>({
   const [editingItem, setEditingItem] = useState<T | null>(null);
   const [formData, setFormData] = useState<any>({});
   const [searchTerm, setSearchTerm] = useState('');
-  const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties>({}); 
   
   // Sorting State
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null); // Ref for the main container
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const handleInputChange = (key: string, value: string) => {
     setFormData((prev: any) => ({ ...prev, [key]: value }));
   };
 
   const handleEditClick = (e: React.MouseEvent<HTMLButtonElement>, item: T) => {
-    const isDesktop = window.innerWidth >= 768;
-    
-    if (isDesktop && containerRef.current) {
-        const buttonRect = e.currentTarget.getBoundingClientRect();
-        const containerRect = containerRef.current.getBoundingClientRect();
-        
-        const modalWidth = 448; // max-w-md
-        const modalHeightEstimate = 500;
-        
-        let top = buttonRect.top - containerRect.top; 
-        let left = buttonRect.left - containerRect.left - modalWidth - 16; 
-        
-        if (buttonRect.left - modalWidth < 20) {
-            left = buttonRect.left - containerRect.left + buttonRect.width + 16;
-        }
-
-        const spaceBelow = window.innerHeight - buttonRect.bottom;
-        if (spaceBelow < modalHeightEstimate && buttonRect.top > modalHeightEstimate) {
-             top = top - modalHeightEstimate + buttonRect.height;
-        }
-
-        setPopoverStyle({
-            position: 'absolute',
-            left: `${left}px`,
-            top: `${top}px`,
-            margin: 0,
-            zIndex: 70
-        });
-    } else {
-        setPopoverStyle({}); // Mobile: Center fixed
-    }
-
+    e.stopPropagation(); 
     setEditingItem(item);
     setFormData(item);
     setModalOpen(true);
   };
 
   const handleAddClick = () => {
-    setPopoverStyle({}); // Center for Add
     setEditingItem(null);
     setFormData({});
     setModalOpen(true);
@@ -244,12 +211,10 @@ const DataManager = <T extends { id: string }>({
         const aValue = a[sortConfig.key as keyof T];
         const bValue = b[sortConfig.key as keyof T];
 
-        // Handle numeric sorting safely
         if (typeof aValue === 'number' && typeof bValue === 'number') {
              return sortConfig.direction === 'asc' ? aValue - bValue : bValue - aValue;
         }
         
-        // Default string sorting
         const aString = String(aValue || '').toLowerCase();
         const bString = String(bValue || '').toLowerCase();
 
@@ -265,8 +230,6 @@ const DataManager = <T extends { id: string }>({
 
     return processed;
   }, [data, searchTerm, sortConfig]);
-
-  const isPopover = Object.keys(popoverStyle).length > 0;
 
   return (
     <div ref={containerRef} className="space-y-6 animate-fade-in relative pb-10">
@@ -379,45 +342,25 @@ const DataManager = <T extends { id: string }>({
          </div>
       </div>
 
-      {/* MODAL SYSTEM */}
-      {modalOpen && (
-        <>
-            <div className={`fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm animate-fade-in ${isPopover ? 'cursor-default' : 'flex items-center justify-center'}`} onClick={() => setModalOpen(false)}>
-                {!isPopover && (
-                   <div 
-                     className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md relative z-10 overflow-hidden animate-slide-down border border-white/50 ring-4 ring-slate-50 transition-all duration-300 mx-4"
-                     onClick={e => e.stopPropagation()} 
-                   >
-                     <ModalContent 
-                        title={title} 
-                        editingItem={editingItem} 
-                        setModalOpen={setModalOpen} 
-                        handleSubmit={handleSubmit} 
-                        columns={columns} 
-                        formData={formData} 
-                        handleInputChange={handleInputChange} 
-                     />
-                   </div>
-                )}
-            </div>
-
-            {isPopover && (
-                 <div 
-                   className="absolute bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden animate-slide-down border border-white/50 ring-4 ring-slate-50 transition-all duration-300"
-                   style={popoverStyle}
-                 >
-                    <ModalContent 
-                        title={title} 
-                        editingItem={editingItem} 
-                        setModalOpen={setModalOpen} 
-                        handleSubmit={handleSubmit} 
-                        columns={columns} 
-                        formData={formData} 
-                        handleInputChange={handleInputChange} 
-                     />
-                 </div>
-            )}
-        </>
+      {/* MODAL SYSTEM - MOVED TO PORTAL */}
+      {modalOpen && createPortal(
+        <div className="fixed inset-0 z-[100] bg-transparent flex items-center justify-center p-4 animate-fade-in" onClick={() => setModalOpen(false)}>
+           <div 
+             className="bg-white rounded-[2rem] shadow-2xl w-full max-w-4xl relative z-10 overflow-hidden animate-slide-down border border-white/50 ring-4 ring-slate-50 transition-all duration-300"
+             onClick={e => e.stopPropagation()} 
+           >
+             <ModalContent 
+                title={title} 
+                editingItem={editingItem} 
+                setModalOpen={setModalOpen} 
+                handleSubmit={handleSubmit} 
+                columns={columns} 
+                formData={formData} 
+                handleInputChange={handleInputChange} 
+             />
+           </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -436,7 +379,7 @@ const ModalContent = ({ title, editingItem, setModalOpen, handleSubmit, columns,
             <button type="button" onClick={() => setModalOpen(false)} className="bg-white p-1.5 rounded-full shadow-sm text-slate-400 hover:text-slate-600 transition-colors border border-slate-100"><X size={20} /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-6">
-            <div className="flex flex-col gap-5">
+            <div className="grid grid-cols-2 gap-5">
             {columns.map((col: any) => (
                 <div key={String(col.key)}>
                     {col.type === 'select' && col.options ? (
@@ -463,11 +406,11 @@ const ModalContent = ({ title, editingItem, setModalOpen, handleSubmit, columns,
                 </div>
             ))}
             </div>
-            <div className="flex gap-3 mt-8 pt-2">
-            <button type="button" onClick={() => setModalOpen(false)} className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all">Batal</button>
-            <button type="submit" className={`flex-[2] px-4 py-3 text-white rounded-xl font-bold text-sm shadow-lg transition-all active:scale-95 ${editingItem ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-200' : 'bg-primary-600 hover:bg-primary-700 shadow-primary-200'}`}>
-                {editingItem ? 'Simpan Perubahan' : 'Simpan Data Baru'}
-            </button>
+            <div className="flex gap-3 mt-8 pt-4 border-t border-slate-100">
+                <button type="button" onClick={() => setModalOpen(false)} className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all">Batal</button>
+                <button type="submit" className={`flex-[2] px-4 py-3 text-white rounded-xl font-bold text-sm shadow-lg transition-all active:scale-95 ${editingItem ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-200' : 'bg-primary-600 hover:bg-primary-700 shadow-primary-200'}`}>
+                    {editingItem ? 'Simpan Perubahan' : 'Simpan Data Baru'}
+                </button>
             </div>
         </form>
     </>
