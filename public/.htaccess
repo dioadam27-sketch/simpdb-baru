@@ -1,0 +1,27 @@
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  
+  # Jika aplikasi diupload ke subfolder (misal: domain.com/app/), ubah baris bawah menjadi: RewriteBase /app/
+  RewriteBase /
+
+  # ATURAN 1: Izinkan akses langsung ke file atau folder yang benar-benar ada
+  # Ini SANGAT PENTING agar api.php, gambar, css, dan js tetap bisa diakses dan tidak diredirect ke React
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # ATURAN 2: Redirect semua request sisa ke index.html
+  # Jika file tidak ditemukan (misal user akses /dashboard), server akan memuat index.html
+  # sehingga React Router bisa mengambil alih dan menampilkan halaman yang benar.
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# Keamanan: Matikan listing direktori agar orang luar tidak bisa melihat daftar file dalam folder
+Options -Indexes
+
+# Pastikan file JavaScript dan CSS diload dengan tipe konten yang benar
+<IfModule mod_mime.c>
+  AddType application/javascript .js
+  AddType text/css .css
+</IfModule>

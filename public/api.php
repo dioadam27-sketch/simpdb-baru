@@ -6,11 +6,16 @@ header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Headers: Content-Type");
 header("Content-Type: application/json; charset=UTF-8");
 
-// Database Configuration
+// =================================================================================
+// KONFIGURASI DATABASE
+// =================================================================================
+
 $host = 'localhost';
 $db_name = 'pkkiipendidikanu_simpdb';
 $username = 'pkkiipendidikanu_dioarsip';
 $password = '@Dioadam27';
+
+// =================================================================================
 
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$db_name;charset=utf8", $username, $password);
@@ -29,7 +34,7 @@ if ($method === 'GET') {
 
     foreach ($tables as $table) {
         try {
-            $stmt = $pdo->prepare("SELECT * FROM `$table`"); // Added backticks for safety
+            $stmt = $pdo->prepare("SELECT * FROM `$table`"); 
             $stmt->execute();
             $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
@@ -41,7 +46,7 @@ if ($method === 'GET') {
             }
             $response[$table] = $data;
         } catch (Exception $e) {
-            $response[$table] = []; // Fail gracefully for individual tables
+            $response[$table] = []; 
         }
     }
 
@@ -63,7 +68,7 @@ if ($method === 'POST') {
     $data = $input['data'] ?? [];
     $id = $input['id'] ?? ($data['id'] ?? '');
 
-    // Validate Table Name
+    // --- STANDARD CRUD ACTIONS ---
     $allowedTables = ['courses', 'lecturers', 'rooms', 'classes', 'schedule', 'teaching_logs', 'settings'];
     if (!in_array($table, $allowedTables)) {
         echo json_encode(["status" => "error", "message" => "Invalid table"]);
@@ -73,11 +78,9 @@ if ($method === 'POST') {
     try {
         if ($action === 'add') {
             $columns = array_keys($data);
-            // FIX: Wrap columns in backticks to handle reserved words like 'key'
             $escaped_cols = array_map(function($k) { return "`$k`"; }, $columns);
             $placeholders = array_map(function($k) { return ":$k"; }, $columns);
             
-            // Handle array conversion for lecturerIds
             if (isset($data['lecturerIds']) && is_array($data['lecturerIds'])) {
                 $data['lecturerIds'] = json_encode($data['lecturerIds']);
             }
@@ -87,15 +90,12 @@ if ($method === 'POST') {
             $stmt->execute($data);
 
         } elseif ($action === 'update') {
-            
-            // Special Handler for Teaching Logs (Upsert)
             if ($table === 'teaching_logs') {
                 $check = $pdo->prepare("SELECT id FROM teaching_logs WHERE scheduleId=:sid AND lecturerId=:lid AND week=:wk");
                 $check->execute([':sid'=>$data['scheduleId'], ':lid'=>$data['lecturerId'], ':wk'=>$data['week']]);
                 if ($row = $check->fetch()) {
-                    $id = $row['id']; // Use existing ID to update
+                    $id = $row['id']; 
                 } else {
-                    // Insert New (Recurse logic manually)
                     $columns = array_keys($data);
                     $escaped_cols = array_map(function($k) { return "`$k`"; }, $columns);
                     $placeholders = array_map(function($k) { return ":$k"; }, $columns);
@@ -107,13 +107,10 @@ if ($method === 'POST') {
                 }
             }
 
-            // Special Handler for Settings (Update by Key)
             if ($table === 'settings' && isset($data['key'])) {
-                 // Delete existing setting with same key first
                  $del = $pdo->prepare("DELETE FROM settings WHERE `key` = :k");
                  $del->execute([':k' => $data['key']]);
                  
-                 // Then Insert new value
                  $columns = array_keys($data);
                  $escaped_cols = array_map(function($k) { return "`$k`"; }, $columns);
                  $placeholders = array_map(function($k) { return ":$k"; }, $columns);
@@ -121,7 +118,6 @@ if ($method === 'POST') {
                  $stmt = $pdo->prepare($sql);
                  $stmt->execute($data);
             } else {
-                // Generic ID based update
                 if (!$id) throw new Exception("ID required for update");
                 
                 if (isset($data['lecturerIds']) && is_array($data['lecturerIds'])) {
@@ -130,7 +126,7 @@ if ($method === 'POST') {
 
                 $setPart = [];
                 foreach ($data as $key => $value) {
-                    $setPart[] = "`$key` = :$key"; // Added backticks here
+                    $setPart[] = "`$key` = :$key"; 
                 }
                 $sql = "UPDATE `$table` SET " . implode(", ", $setPart) . " WHERE id = :id";
                 $stmt = $pdo->prepare($sql);
