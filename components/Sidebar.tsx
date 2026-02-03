@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, BookOpen, Users, Building2, Calendar, Menu, X, UserCheck, LogOut, CalendarClock, Activity, Settings, Layers, Key, ClipboardCheck, BarChart3, Banknote, ChevronRight, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Users, Building2, Calendar, Menu, X, UserCheck, LogOut, CalendarClock, Activity, Settings, Layers, Key, ClipboardCheck, BarChart3, Banknote, ChevronRight, RefreshCw, Zap } from 'lucide-react';
 import { ViewState, UserRole } from '../types';
 
 interface SidebarProps {
@@ -63,8 +63,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, userRole, onChangeView, 
         {/* Logo Header */}
         <div className="p-6 pb-2">
           <div className="flex items-center gap-3 font-bold text-xl tracking-tight mb-6">
-            <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center shadow-lg shadow-primary-500/30">
-              <CalendarClock size={20} className="text-white" />
+            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-primary-500/30 overflow-hidden p-1">
+              <img src="https://ppk2ipe.unair.ac.id/gambar/UNAIR_BRANDMARK_2025-02.png" alt="Logo" className="w-full h-full object-contain" />
             </div>
             <div>
               <span className="block leading-none">SIMPDB</span>
@@ -84,11 +84,10 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, userRole, onChangeView, 
           </div>
           <div className="space-y-1">
             {activeMenu.map((item) => (
-              <button
+              <a
                 key={item.id}
-                type="button"
+                href={`#${item.id}`}
                 onClick={(e) => {
-                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
                   e.preventDefault();
                   onChangeView(item.id as ViewState);
                   if (window.innerWidth < 768) toggleSidebar();
@@ -98,7 +97,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, userRole, onChangeView, 
                 <item.icon size={20} className={`transition-colors ${currentView === item.id ? 'text-white' : 'text-slate-500 group-hover:text-white'}`} />
                 <span className="font-medium text-sm flex-1">{item.label}</span>
                 {currentView === item.id && <ChevronRight size={14} className="opacity-80" />}
-              </button>
+              </a>
             ))}
           </div>
 
@@ -107,8 +106,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, userRole, onChangeView, 
                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4 px-2">
                 External
               </div>
-              <button
-                type="button"
+              <a
+                href="#portal"
                 onClick={(e) => {
                   e.preventDefault();
                   onChangeView('portal');
@@ -118,13 +117,23 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, userRole, onChangeView, 
               >
                 <UserCheck size={20} className={`transition-colors ${currentView === 'portal' ? 'text-white' : 'text-slate-500 group-hover:text-white'}`} />
                 <span className="font-medium text-sm flex-1">Portal Dosen</span>
-              </button>
+              </a>
             </div>
           )}
         </nav>
 
         <div className="p-4 border-t border-slate-800 bg-slate-900/50">
           <div className="space-y-1">
+            
+            {/* Live Indicator */}
+            <div className="mb-4 px-4 flex items-center gap-2 text-xs font-bold text-emerald-400">
+                <div className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </div>
+                <span>LIVE CONNECTION</span>
+            </div>
+
             {onSync && (
               <button 
                 type="button"

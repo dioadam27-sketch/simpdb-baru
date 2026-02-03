@@ -1,8 +1,8 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Plus, Edit2, Trash2, Upload, RefreshCw, X, Search, 
-  FileSpreadsheet
+  FileSpreadsheet, ArrowUpDown, ArrowUp, ArrowDown, Check, ChevronDown
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -25,6 +25,91 @@ interface DataManagerProps<T> {
   onClear?: () => void;
 }
 
+// --- INTERNAL COMPONENT: SEARCHABLE SELECT ---
+const SearchableSelect = ({ label, options, value, onChange, placeholder }: any) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    // Normalize Options
+    const normalizedOptions = useMemo(() => {
+        return options.map((opt: any) => {
+            if (typeof opt === 'string') return { value: opt, label: opt };
+            return opt;
+        });
+    }, [options]);
+
+    const selectedLabel = useMemo(() => {
+        const found = normalizedOptions.find((o: any) => String(o.value) === String(value));
+        return found ? found.label : value || '';
+    }, [value, normalizedOptions]);
+
+    const filteredOptions = useMemo(() => {
+        return normalizedOptions.filter((o: any) => 
+            o.label.toLowerCase().includes(search.toLowerCase())
+        );
+    }, [normalizedOptions, search]);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    return (
+        <div className="space-y-2 group relative" ref={containerRef}>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider group-focus-within:text-primary-600 transition-colors ml-1">{label}</label>
+            <div 
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer flex justify-between items-center hover:border-primary-300 transition-colors"
+                onClick={() => { setIsOpen(!isOpen); if(!isOpen) setSearch(''); }}
+            >
+                <span className={`text-sm font-medium ${value ? 'text-slate-700' : 'text-slate-400'}`}>
+                    {selectedLabel || placeholder || `Pilih ${label}`}
+                </span>
+                <ChevronDown size={16} className="text-slate-400" />
+            </div>
+
+            {isOpen && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden animate-zoom-in max-h-60 flex flex-col">
+                    <div className="p-2 border-b border-slate-100 bg-slate-50 sticky top-0 z-10">
+                        <div className="relative">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input 
+                                autoFocus
+                                type="text" 
+                                className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                placeholder="Cari..."
+                                value={search}
+                                onChange={e => setSearch(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <div className="overflow-y-auto flex-1 p-1">
+                        {filteredOptions.length > 0 ? (
+                            filteredOptions.map((opt: any) => (
+                                <div 
+                                    key={opt.value}
+                                    onClick={() => { onChange(opt.value); setIsOpen(false); }}
+                                    className={`px-3 py-2 rounded-lg text-sm cursor-pointer flex items-center justify-between hover:bg-primary-50 transition-colors ${String(value) === String(opt.value) ? 'bg-primary-50 text-primary-700 font-bold' : 'text-slate-700'}`}
+                                >
+                                    {opt.label}
+                                    {String(value) === String(opt.value) && <Check size={14} className="text-primary-600"/>}
+                                </div>
+                            ))
+                        ) : (
+                            <div className="p-3 text-center text-xs text-slate-400 italic">Tidak ditemukan.</div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 const DataManager = <T extends { id: string }>({ 
   title, 
   data, 
@@ -41,6 +126,9 @@ const DataManager = <T extends { id: string }>({
   const [formData, setFormData] = useState<any>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties>({}); 
+  
+  // Sorting State
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null); // Ref for the main container
@@ -59,21 +147,15 @@ const DataManager = <T extends { id: string }>({
         const modalWidth = 448; // max-w-md
         const modalHeightEstimate = 500;
         
-        // Calculate position relative to the container (which scrolls)
-        // This makes the modal move WITH the scroll
         let top = buttonRect.top - containerRect.top; 
-        let left = buttonRect.left - containerRect.left - modalWidth - 16; // 16px gap
+        let left = buttonRect.left - containerRect.left - modalWidth - 16; 
         
-        // Smart Positioning Logic
-        // 1. Flip to right if not enough space on left
         if (buttonRect.left - modalWidth < 20) {
             left = buttonRect.left - containerRect.left + buttonRect.width + 16;
         }
 
-        // 2. Flip up if not enough space at bottom of viewport
         const spaceBelow = window.innerHeight - buttonRect.bottom;
         if (spaceBelow < modalHeightEstimate && buttonRect.top > modalHeightEstimate) {
-             // Position bottom of modal at button top
              top = top - modalHeightEstimate + buttonRect.height;
         }
 
@@ -81,7 +163,8 @@ const DataManager = <T extends { id: string }>({
             position: 'absolute',
             left: `${left}px`,
             top: `${top}px`,
-            margin: 0
+            margin: 0,
+            zIndex: 70
         });
     } else {
         setPopoverStyle({}); // Mobile: Center fixed
@@ -139,11 +222,49 @@ const DataManager = <T extends { id: string }>({
     XLSX.writeFile(workbook, `${title}_Data.xlsx`);
   };
 
-  const filteredData = data.filter(item => 
-    Object.values(item).some(val => 
-      String(val).toLowerCase().includes(searchTerm.toLowerCase())
-    )
-  );
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const filteredAndSortedData = useMemo(() => {
+    // 1. Filter
+    let processed = data.filter(item => 
+      Object.values(item).some(val => 
+        String(val).toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    );
+
+    // 2. Sort
+    if (sortConfig) {
+      processed.sort((a, b) => {
+        const aValue = a[sortConfig.key as keyof T];
+        const bValue = b[sortConfig.key as keyof T];
+
+        // Handle numeric sorting safely
+        if (typeof aValue === 'number' && typeof bValue === 'number') {
+             return sortConfig.direction === 'asc' ? aValue - bValue : bValue - aValue;
+        }
+        
+        // Default string sorting
+        const aString = String(aValue || '').toLowerCase();
+        const bString = String(bValue || '').toLowerCase();
+
+        if (aString < bString) {
+          return sortConfig.direction === 'asc' ? -1 : 1;
+        }
+        if (aString > bString) {
+          return sortConfig.direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+
+    return processed;
+  }, [data, searchTerm, sortConfig]);
 
   const isPopover = Object.keys(popoverStyle).length > 0;
 
@@ -204,20 +325,35 @@ const DataManager = <T extends { id: string }>({
                     <tr>
                         <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest w-16 text-center">No</th>
                         {columns.map(col => (
-                            <th key={String(col.key)} className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest">{col.label}</th>
+                            <th 
+                                key={String(col.key)} 
+                                onClick={() => handleSort(String(col.key))}
+                                className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest cursor-pointer hover:bg-slate-100 transition-colors select-none group"
+                            >
+                                <div className="flex items-center gap-2">
+                                    {col.label}
+                                    <span className="text-slate-300 group-hover:text-blue-500 transition-colors">
+                                        {sortConfig?.key === col.key ? (
+                                            sortConfig.direction === 'asc' ? <ArrowUp size={14} className="text-blue-600" /> : <ArrowDown size={14} className="text-blue-600" />
+                                        ) : (
+                                            <ArrowUpDown size={14} />
+                                        )}
+                                    </span>
+                                </div>
+                            </th>
                         ))}
                         <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest text-right">Aksi</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                    {filteredData.length === 0 ? (
+                    {filteredAndSortedData.length === 0 ? (
                         <tr>
                             <td colSpan={columns.length + 2} className="p-12 text-center text-slate-400">
                                 Data tidak ditemukan.
                             </td>
                         </tr>
                     ) : (
-                        filteredData.map((item, index) => (
+                        filteredAndSortedData.map((item, index) => (
                             <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                                 <td className="p-4 text-center text-xs font-bold text-slate-400">{index + 1}</td>
                                 {columns.map(col => {
@@ -246,16 +382,12 @@ const DataManager = <T extends { id: string }>({
       {/* MODAL SYSTEM */}
       {modalOpen && (
         <>
-            {/* 1. BACKDROP (Fixed, covers full screen) */}
             <div className={`fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm animate-fade-in ${isPopover ? 'cursor-default' : 'flex items-center justify-center'}`} onClick={() => setModalOpen(false)}>
-                
-                {/* 2. MODAL CONTENT (Conditional: Fixed Centered OR Absolute Popover) */}
                 {!isPopover && (
                    <div 
                      className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md relative z-10 overflow-hidden animate-slide-down border border-white/50 ring-4 ring-slate-50 transition-all duration-300 mx-4"
                      onClick={e => e.stopPropagation()} 
                    >
-                     {/* Form Content (Same as below) */}
                      <ModalContent 
                         title={title} 
                         editingItem={editingItem} 
@@ -269,10 +401,9 @@ const DataManager = <T extends { id: string }>({
                 )}
             </div>
 
-            {/* 3. POPOVER CONTENT (Absolute relative to DataManager container, effectively scrolling with it) */}
             {isPopover && (
                  <div 
-                   className="absolute z-[70] bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden animate-slide-down border border-white/50 ring-4 ring-slate-50 transition-all duration-300"
+                   className="absolute bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden animate-slide-down border border-white/50 ring-4 ring-slate-50 transition-all duration-300"
                    style={popoverStyle}
                  >
                     <ModalContent 
@@ -292,7 +423,6 @@ const DataManager = <T extends { id: string }>({
   );
 };
 
-// Extracted Component to avoid duplication in render
 const ModalContent = ({ title, editingItem, setModalOpen, handleSubmit, columns, formData, handleInputChange }: any) => (
     <>
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 backdrop-blur-md">
@@ -308,38 +438,29 @@ const ModalContent = ({ title, editingItem, setModalOpen, handleSubmit, columns,
         <form onSubmit={handleSubmit} className="p-6">
             <div className="flex flex-col gap-5">
             {columns.map((col: any) => (
-            <div key={String(col.key)} className="space-y-2 group">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider group-focus-within:text-primary-600 transition-colors ml-1">{col.label}</label>
-                {col.type === 'select' && col.options ? (
-                <div className="relative">
-                    <select
-                        required
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:bg-white focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm transition-all font-medium text-slate-700 appearance-none"
-                        value={formData[col.key as string] || ''}
-                        onChange={e => handleInputChange(col.key as string, e.target.value)}
-                    >
-                        <option value="">-- Pilih {col.label} --</option>
-                        {col.options.map((opt: any, idx: number) => {
-                            const val = typeof opt === 'string' ? opt : opt?.value || '';
-                            const lab = typeof opt === 'string' ? opt : opt?.label || '';
-                            return <option key={`${val}-${idx}`} value={val}>{lab}</option>
-                        })}
-                    </select>
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-                    </div>
+                <div key={String(col.key)}>
+                    {col.type === 'select' && col.options ? (
+                        <SearchableSelect 
+                            label={col.label}
+                            options={col.options}
+                            value={formData[col.key] || ''}
+                            onChange={(val: string) => handleInputChange(col.key, val)}
+                            placeholder={`-- Pilih ${col.label} --`}
+                        />
+                    ) : (
+                        <div className="space-y-2 group">
+                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider group-focus-within:text-primary-600 transition-colors ml-1">{col.label}</label>
+                            <input
+                                type={col.type === 'number' || (!col.type && (col.key === 'credits' || col.key === 'capacity')) ? 'number' : 'text'}
+                                required
+                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:bg-white focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm transition-all font-medium text-slate-700 placeholder:text-slate-400"
+                                value={formData[col.key as string] || ''}
+                                onChange={e => handleInputChange(col.key as string, e.target.value)}
+                                placeholder={`Masukkan ${col.label}...`}
+                            />
+                        </div>
+                    )}
                 </div>
-                ) : (
-                <input
-                    type={col.type === 'number' || (!col.type && (col.key === 'credits' || col.key === 'capacity')) ? 'number' : 'text'}
-                    required
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:bg-white focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm transition-all font-medium text-slate-700 placeholder:text-slate-400"
-                    value={formData[col.key as string] || ''}
-                    onChange={e => handleInputChange(col.key as string, e.target.value)}
-                    placeholder={`Masukkan ${col.label}...`}
-                />
-                )}
-            </div>
             ))}
             </div>
             <div className="flex gap-3 mt-8 pt-2">

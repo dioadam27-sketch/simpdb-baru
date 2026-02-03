@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Menu, BookOpen, Users, Building2, Calendar, LayoutDashboard, CalendarClock, Loader2, Settings, RefreshCw, AlertCircle, CheckCircle2, Lock, Key, X, CheckCircle, AlertTriangle, PieChart, UserCheck, UserMinus, Flag, List, XCircle, Clock, MapPin, FileSpreadsheet } from 'lucide-react';
+import { Menu, BookOpen, Users, Building2, Calendar, LayoutDashboard, CalendarClock, Loader2, Settings, RefreshCw, AlertCircle, CheckCircle2, Lock, Key, X, CheckCircle, AlertTriangle, PieChart, UserCheck, UserMinus, Flag, List, XCircle, Clock, MapPin, FileSpreadsheet, Wifi } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import StatCard from './components/StatCard';
 import DataManager from './views/DataManager';
@@ -15,23 +15,56 @@ import AttendanceAdminView from './views/AttendanceAdminView';
 import { Course, Lecturer, Room, ScheduleItem, ViewState, User, UserRole, ClassName, AppSetting, TeachingLog } from './types';
 import * as XLSX from 'xlsx';
 
-// UPDATED BACKEND URL (Provided by User)
-const DEFAULT_SHEET_URL = 'https://script.google.com/macros/s/AKfycbzbNkT2lHlTHlx89PCW5KyK1ahKR-yQrePqdqbZi-E-GiTsN0FrQOqm8hz_klZlext5/exec';
-const CACHE_KEY = 'simpdb_data_cache_v4_realtime'; // Incremented cache key
+// UPDATED BACKEND URL (PHP API)
+const DEFAULT_SHEET_URL = 'https://pkkii.pendidikan.unair.ac.id/simpdbapi/api.php';
+const CACHE_KEY = 'simpdb_data_cache_v5_api_php'; // Updated cache key
 const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 Minutes
 const POLLING_INTERVAL = 3000; // Poll every 3 seconds for real-time sync
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   
-  const [currentView, setCurrentView] = useState<ViewState>(() => {
+  // --- ROUTING LOGIC (HASH BASED) ---
+  const getViewFromHash = (): ViewState => {
     if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const urlView = params.get('view') as ViewState;
-      if (urlView) return urlView;
+      const hash = window.location.hash.replace('#', '');
+      if (hash) return hash as ViewState;
     }
-    return (localStorage.getItem('simpdb_last_view') as ViewState) || 'dashboard';
-  });
+    return 'dashboard';
+  };
+
+  const [currentView, setCurrentView] = useState<ViewState>(getViewFromHash);
+
+  // --- DOCUMENT TITLE UPDATE ---
+  useEffect(() => {
+    const titles: Record<string, string> = {
+      dashboard: 'Dashboard',
+      schedule: 'Jadwal Kuliah',
+      courses: 'Mata Kuliah',
+      lecturers: 'Data Dosen',
+      rooms: 'Data Ruangan',
+      classes: 'Data Kelas',
+      monitoring: 'Monitoring',
+      attendance: 'Presensi Dosen',
+      honor: 'Honor Mengajar',
+      portal: 'Portal Dosen',
+      lecturer_monitoring: 'Monitoring Saya',
+      settings: 'Pengaturan'
+    };
+    
+    document.title = `${titles[currentView] || 'Aplikasi'} - SIMPDB`;
+  }, [currentView]);
+
+  // --- HASH LISTENER ---
+  useEffect(() => {
+    const handleHashChange = () => {
+      const newView = getViewFromHash();
+      setCurrentView(newView);
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   
@@ -41,6 +74,7 @@ const App: React.FC = () => {
   const [errorSync, setErrorSync] = useState<string | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string>('');
   const [sessionMessage, setSessionMessage] = useState<string | null>(null);
+  const [realtimeNotification, setRealtimeNotification] = useState<boolean>(false);
 
   const [courses, setCourses] = useState<Course[]>([]);
   const [lecturers, setLecturers] = useState<Lecturer[]>([]);
@@ -49,6 +83,9 @@ const App: React.FC = () => {
   const [classNames, setClassNames] = useState<ClassName[]>([]);
   const [settings, setSettings] = useState<AppSetting[]>([]);
   const [teachingLogs, setTeachingLogs] = useState<TeachingLog[]>([]);
+
+  // Refs for State Comparison (Optimized Realtime)
+  const previousDataRef = useRef<string>('');
 
   const [passModalOpen, setPassModalOpen] = useState(false);
   const [passForm, setPassForm] = useState({ old: '', new: '', confirm: '' });
@@ -64,52 +101,43 @@ const App: React.FC = () => {
 
   // Initialize URL - Force update if it doesn't match the new default
   const [sheetUrl, setSheetUrl] = useState<string>(() => {
-    const stored = localStorage.getItem('simpdb_sheet_url');
-    if (stored !== DEFAULT_SHEET_URL) {
-       localStorage.setItem('simpdb_sheet_url', DEFAULT_SHEET_URL);
+    const stored = localStorage.getItem('simpdb_api_url');
+    // If stored is old google script or empty, update to new API
+    if (!stored || stored.includes('script.google.com')) {
+       localStorage.setItem('simpdb_api_url', DEFAULT_SHEET_URL);
        return DEFAULT_SHEET_URL;
     }
-    return stored || DEFAULT_SHEET_URL;
+    return stored;
   });
 
   // --- AUTO POLLING FOR REAL-TIME SYNC ---
   useEffect(() => {
     if (!sheetUrl) return;
 
-    // Initial fetch
-    if (!isLoading) {
-        // fetchFromSheets(sheetUrl, true, true);
-    }
-
     const intervalId = setInterval(() => {
       // Only poll if window is visible (save resources) and not currently syncing manually
       // We pass 'silent=true' to avoid showing the loading spinner constantly
-      if (!document.hidden && !isSyncing && apiConnected) {
+      if (!document.hidden && !isSyncing) {
          fetchFromSheets(sheetUrl, true, true); 
       }
     }, POLLING_INTERVAL);
 
     return () => clearInterval(intervalId);
-  }, [sheetUrl, isSyncing, apiConnected]);
+  }, [sheetUrl, isSyncing]);
 
-  // --- STATS CALCULATION (ALL LECTURERS) ---
+  // --- STATS & DATA CALCULATION ---
   const lecturerStats = useMemo(() => {
     const stats: Record<string, number> = {};
     const total = lecturers.length;
     
     lecturers.forEach(l => {
       let pos = l.position && l.position.trim() !== '' ? l.position.trim() : 'Lainnya';
-      
-      // Normalisasi Case Sensitivity untuk menggabungkan status yang sama
-      if (pos.toLowerCase() === 'belum punya jabfung') {
-          pos = 'Belum Punya Jabfung';
-      }
-
+      if (pos.toLowerCase() === 'belum punya jabfung') pos = 'Belum Punya Jabfung';
       stats[pos] = (stats[pos] || 0) + 1;
     });
 
     return Object.entries(stats)
-      .sort((a, b) => b[1] - a[1]) // Sort by count descending
+      .sort((a, b) => b[1] - a[1])
       .map(([label, count]) => {
          let colorClass = 'bg-slate-400';
          if (label.includes('Guru Besar')) colorClass = 'bg-purple-500';
@@ -119,22 +147,14 @@ const App: React.FC = () => {
          else if (label.includes('LB') || label.includes('Praktisi')) colorClass = 'bg-amber-500';
          else if (label.includes('Belum Punya')) colorClass = 'bg-slate-500';
          
-         return {
-            label,
-            count,
-            percentage: total > 0 ? (count / total) * 100 : 0,
-            colorClass
-         };
+         return { label, count, percentage: total > 0 ? (count / total) * 100 : 0, colorClass };
       });
   }, [lecturers]);
 
-  // --- STATS CALCULATION (ACTIVE/PLOTTED LECTURERS ONLY) ---
   const activeLecturerStats = useMemo(() => {
     const plottedIds = new Set<string>();
     schedule.forEach(s => {
-       if (s.lecturerIds && Array.isArray(s.lecturerIds)) {
-           s.lecturerIds.forEach(id => plottedIds.add(id));
-       }
+       if (s.lecturerIds && Array.isArray(s.lecturerIds)) s.lecturerIds.forEach(id => plottedIds.add(id));
     });
 
     const stats: Record<string, number> = {};
@@ -143,12 +163,7 @@ const App: React.FC = () => {
     lecturers.forEach(l => {
        if (plottedIds.has(l.id)) {
            let pos = l.position && l.position.trim() !== '' ? l.position.trim() : 'Lainnya';
-           
-           // Normalisasi Case Sensitivity
-           if (pos.toLowerCase() === 'belum punya jabfung') {
-               pos = 'Belum Punya Jabfung';
-           }
-
+           if (pos.toLowerCase() === 'belum punya jabfung') pos = 'Belum Punya Jabfung';
            stats[pos] = (stats[pos] || 0) + 1;
            totalActive++;
        }
@@ -164,42 +179,21 @@ const App: React.FC = () => {
         else if (label.includes('Asisten')) colorClass = 'bg-emerald-500';
         else if (label.includes('LB') || label.includes('Praktisi')) colorClass = 'bg-amber-500';
         else if (label.includes('Belum Punya')) colorClass = 'bg-slate-500';
-        
-        return {
-           label,
-           count,
-           percentage: totalActive > 0 ? (count / totalActive) * 100 : 0,
-           colorClass
-        };
+        return { label, count, percentage: totalActive > 0 ? (count / totalActive) * 100 : 0, colorClass };
      });
  }, [lecturers, schedule]);
 
-  // --- COORDINATOR STATS CALCULATION (FULL TEACHING SCHEDULE) ---
   const coordinatorStats = useMemo(() => {
-    // 1. Identify all Unique Coordinator IDs
-    const uniqueCoordinatorIds = Array.from(new Set(
-        courses
-            .map(c => c.coordinatorId)
-            .filter(id => id && id.trim() !== '')
-    ));
-
-    // 2. Build stats per Coordinator
+    const uniqueCoordinatorIds = Array.from(new Set(courses.map(c => c.coordinatorId).filter(id => id && id.trim() !== '')));
     const details = uniqueCoordinatorIds.map(coordId => {
         const lecturer = lecturers.find(l => l.id === coordId);
         const name = lecturer?.name || 'Unknown';
-
-        // Get ALL schedules for this lecturer (not just the one they coordinate)
         const mySchedules = schedule.filter(s => (s.lecturerIds || []).includes(coordId!));
-
-        // Format details
         const scheduleDetails = mySchedules.map(s => {
             const course = courses.find(c => c.id === s.courseId);
             const room = rooms.find(r => r.id === s.roomId);
             const teamNames = (s.lecturerIds || []).map(lid => lecturers.find(lx => lx.id === lid)?.name || lid);
-            
-            // Check if this is the course they coordinate
             const isCoordinatedByMe = course?.coordinatorId === coordId;
-
             return {
                 id: s.id,
                 className: s.className,
@@ -210,7 +204,7 @@ const App: React.FC = () => {
                 room: room?.name || s.roomId,
                 building: room?.building || '',
                 team: teamNames,
-                isCoordinatedByMe // Flag specific for this schedule
+                isCoordinatedByMe
             };
         }).sort((a, b) => a.className.localeCompare(b.className));
 
@@ -223,108 +217,50 @@ const App: React.FC = () => {
         };
     }).sort((a, b) => a.name.localeCompare(b.name));
 
-    // Calculate Summary Stats
     const totalCoordinators = uniqueCoordinatorIds.length;
     const activeCoordinators = details.filter(d => d.isTeachingAnything).length;
     const inactiveCoordinators = totalCoordinators - activeCoordinators;
     const percentageTeaching = totalCoordinators > 0 ? (activeCoordinators / totalCoordinators) * 100 : 0;
 
-    return {
-        totalCoordinators,
-        activeCoordinators,
-        inactiveCoordinators,
-        percentageTeaching,
-        details // Contains full structure for modal
-    };
+    return { totalCoordinators, activeCoordinators, inactiveCoordinators, percentageTeaching, details };
   }, [courses, schedule, lecturers, rooms]);
 
-  const downloadCoordinatorReport = () => {
-    if (!coordinatorStats.details || coordinatorStats.details.length === 0) return;
-
-    try {
-        const data: any[] = [];
-        
-        coordinatorStats.details.forEach(coord => {
-            if (coord.schedules.length === 0) {
-                data.push({
-                    "Nama Koordinator": coord.name,
-                    "Status Mengajar": "Tidak Mengajar",
-                    "Mata Kuliah": "-",
-                    "Kelas": "-",
-                    "Hari": "-",
-                    "Jam": "-",
-                    "Ruangan": "-",
-                    "Tim Pengajar": "-",
-                    "Posisi di MK": "-"
-                });
-            } else {
-                coord.schedules.forEach(sch => {
-                    data.push({
-                        "Nama Koordinator": coord.name,
-                        "Status Mengajar": "Aktif",
-                        "Mata Kuliah": sch.courseName,
-                        "Kelas": sch.className,
-                        "Hari": sch.day,
-                        "Jam": sch.time,
-                        "Ruangan": sch.room,
-                        "Tim Pengajar": sch.team.join(", "),
-                        "Posisi di MK": sch.isCoordinatedByMe ? "Koordinator (PJMK)" : "Dosen Pengajar"
-                    });
-                });
-            }
-        });
-
-        const worksheet = XLSX.utils.json_to_sheet(data);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Sebaran Koordinator");
-        XLSX.writeFile(workbook, "Laporan_Sebaran_Koordinator.xlsx");
-    } catch (e) {
-        console.error("Download failed", e);
-    }
-  };
-
-  // --- PLOTTING STATS ---
   const plottingStats = useMemo(() => {
      const plottedIds = new Set<string>();
      schedule.forEach(s => {
-        if (s.lecturerIds && Array.isArray(s.lecturerIds)) {
-            s.lecturerIds.forEach(id => plottedIds.add(id));
-        }
+        if (s.lecturerIds && Array.isArray(s.lecturerIds)) s.lecturerIds.forEach(id => plottedIds.add(id));
      });
-     
      const total = lecturers.length;
      const plotted = plottedIds.size;
      const unplotted = total - plotted;
      const percentage = total > 0 ? (plotted / total) * 100 : 0;
-
      return { total, plotted, unplotted, percentage };
   }, [lecturers, schedule]);
 
-  useEffect(() => {
-    const handlePopState = () => {
-      const params = new URLSearchParams(window.location.search);
-      const view = params.get('view') as ViewState;
-      if (view) {
-        setCurrentView(view);
-      }
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
-
-  const handleViewChange = (view: ViewState) => {
-    setCurrentView(view);
-    localStorage.setItem('simpdb_last_view', view);
-    const url = new URL(window.location.href);
-    url.searchParams.set('view', view);
-    window.history.pushState({}, '', url);
+  const downloadCoordinatorReport = () => {
+    if (!coordinatorStats.details || coordinatorStats.details.length === 0) return;
+    try {
+        const data: any[] = [];
+        coordinatorStats.details.forEach(coord => {
+            if (coord.schedules.length === 0) {
+                data.push({ "Nama Koordinator": coord.name, "Status Mengajar": "Tidak Mengajar", "Mata Kuliah": "-", "Kelas": "-", "Hari": "-", "Jam": "-", "Ruangan": "-", "Tim Pengajar": "-", "Posisi di MK": "-" });
+            } else {
+                coord.schedules.forEach(sch => {
+                    data.push({ "Nama Koordinator": coord.name, "Status Mengajar": "Aktif", "Mata Kuliah": sch.courseName, "Kelas": sch.className, "Hari": sch.day, "Jam": sch.time, "Ruangan": sch.room, "Tim Pengajar": sch.team.join(", "), "Posisi di MK": sch.isCoordinatedByMe ? "Koordinator (PJMK)" : "Dosen Pengajar" });
+                });
+            }
+        });
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Sebaran Koordinator");
+        XLSX.writeFile(workbook, "Laporan_Sebaran_Koordinator.xlsx");
+    } catch (e) { console.error("Download failed", e); }
   };
 
+  const handleViewChange = (view: ViewState) => { window.location.hash = view; };
+
   const saveToCache = (data: any) => {
-    const cacheData = {
-      timestamp: new Date().toISOString(),
-      data: data
-    };
+    const cacheData = { timestamp: new Date().toISOString(), data: data };
     localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
     setLastSyncTime(new Date().toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'}));
   };
@@ -342,13 +278,12 @@ const App: React.FC = () => {
         if (data.classes) setClassNames(data.classes);
         if (data.settings) setSettings(data.settings);
         if (data.teaching_logs) setTeachingLogs(data.teaching_logs);
-        if (parsed.timestamp) {
-           setLastSyncTime(new Date(parsed.timestamp).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'}));
-        }
+        if (parsed.timestamp) setLastSyncTime(new Date(parsed.timestamp).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'}));
+        
+        // Initialize Ref with cached data to prevent initial reload trigger
+        previousDataRef.current = JSON.stringify(data);
         return true; 
-      } catch (e) {
-        return false;
-      }
+      } catch (e) { return false; }
     }
     return false;
   }, []);
@@ -356,7 +291,6 @@ const App: React.FC = () => {
   const fetchFromSheets = async (url: string, forceRefresh = false, silent = false) => {
     if (!url) return;
     if (!silent) setIsSyncing(true);
-    // Don't clear error sync if silent, to keep warning visible if persists
     if (!silent) setErrorSync(null); 
     
     try {
@@ -364,42 +298,26 @@ const App: React.FC = () => {
       const separator = cleanUrl.includes('?') ? '&' : '?';
       const nocacheParam = forceRefresh ? '&nocache=true' : '';
       const fetchUrl = `${cleanUrl}${separator}t=${new Date().getTime()}${nocacheParam}`;
+      
       const response = await fetch(fetchUrl);
       if (!response.ok) throw new Error(`Server error: ${response.status} ${response.statusText}`);
-      const text = await response.text();
-      let data;
-      try {
-          data = JSON.parse(text);
-      } catch (e) {
-          if (text.toLowerCase().includes('<!doctype html>') || text.includes('Google Accounts')) throw new Error("Akses ditolak. Cek permissions script.");
-          throw new Error("Format data salah.");
-      }
+      
+      const data = await response.json();
+      
       if (data) {
         const normalizedData = {
-          // ADDED coordinatorId parsing here
           courses: data.courses?.map((c: any) => ({ ...c, id: String(c.id), credits: Number(c.credits) || 0, coordinatorId: String(c.coordinatorId || '') })) || [],
           lecturers: data.lecturers?.map((l: any) => ({ ...l, id: String(l.id), nip: String(l.nip) })) || [],
           rooms: data.rooms?.map((r: any) => ({ ...r, id: String(r.id), capacity: Number(r.capacity) || 0 })) || [],
           schedule: data.schedule?.map((s: any) => {
             let parsedIds: string[] = [];
             try {
-              if (Array.isArray(s.lecturerIds)) {
-                 parsedIds = s.lecturerIds.map(String);
-              } else if (s.lecturerIds && typeof s.lecturerIds === 'string') {
-                 const trimmed = s.lecturerIds.trim();
-                 if (trimmed.startsWith('[')) {
-                    const raw = JSON.parse(trimmed);
-                    if (Array.isArray(raw)) parsedIds = raw.map(String);
-                 } else if (trimmed.includes(',')) {
-                    parsedIds = trimmed.split(',').map((i: string) => i.trim());
-                 } else {
-                    parsedIds = [trimmed];
-                 }
-              } else if (s.lecturerIds) {
-                 parsedIds = [String(s.lecturerIds)];
-              } else if (s.lecturerId) {
-                 parsedIds = [String(s.lecturerId)];
-              }
+              if (Array.isArray(s.lecturerIds)) { parsedIds = s.lecturerIds.map(String); } 
+              else if (s.lecturerIds && typeof s.lecturerIds === 'string') {
+                 try { const raw = JSON.parse(s.lecturerIds); if (Array.isArray(raw)) parsedIds = raw.map(String); else parsedIds = [String(s.lecturerIds)]; } 
+                 catch { if (s.lecturerIds.includes(',')) parsedIds = s.lecturerIds.split(',').map((i: string) => i.trim()); else parsedIds = [s.lecturerIds]; }
+              } else if (s.lecturerIds) { parsedIds = [String(s.lecturerIds)]; } 
+              else if (s.lecturerId) { parsedIds = [String(s.lecturerId)]; }
             } catch(e) { if (typeof s.lecturerIds === 'string') parsedIds = [s.lecturerIds]; }
 
             return { 
@@ -425,19 +343,31 @@ const App: React.FC = () => {
           })) || []
         };
 
-        // Only update state if data actually changed (Optimization)
-        // For simple implementation, we just set state. React diffing handles UI updates.
-        setCourses(normalizedData.courses);
-        setLecturers(normalizedData.lecturers);
-        setRooms(normalizedData.rooms);
-        setSchedule(normalizedData.schedule);
-        setSettings(normalizedData.settings);
-        setTeachingLogs(normalizedData.teaching_logs);
-        if (normalizedData.classes.length > 0) setClassNames(normalizedData.classes);
+        // --- REALTIME OPTIMIZATION: DEEP COMPARISON ---
+        // Only update state if data physically changed to avoid re-renders
+        const currentString = JSON.stringify(normalizedData);
+        if (currentString !== previousDataRef.current) {
+            
+            // If it's a silent poll (auto-refresh) and data changed, show toast
+            if (silent && previousDataRef.current !== '') {
+                setRealtimeNotification(true);
+                setTimeout(() => setRealtimeNotification(false), 4000);
+            }
+
+            setCourses(normalizedData.courses);
+            setLecturers(normalizedData.lecturers);
+            setRooms(normalizedData.rooms);
+            setSchedule(normalizedData.schedule);
+            setSettings(normalizedData.settings);
+            setTeachingLogs(normalizedData.teaching_logs);
+            if (normalizedData.classes.length > 0) setClassNames(normalizedData.classes);
+            
+            previousDataRef.current = currentString;
+            saveToCache(normalizedData);
+        }
         
         setApiConnected(true);
         if (!silent) setErrorSync(null);
-        saveToCache(normalizedData);
       }
     } catch (error: any) {
       if (!silent) {
@@ -469,13 +399,8 @@ const App: React.FC = () => {
       try {
         const user = JSON.parse(storedSession);
         setCurrentUser(user);
-        const params = new URLSearchParams(window.location.search);
-        const urlView = params.get('view') as ViewState;
-        if (urlView) {
-            setCurrentView(urlView);
-        } else {
-            const savedView = localStorage.getItem('simpdb_last_view');
-            if (savedView) setCurrentView(savedView as ViewState);
+        if (!window.location.hash) {
+            window.location.hash = user.role === 'admin' ? 'dashboard' : 'portal';
         }
       } catch (e) {
         localStorage.removeItem('simpdb_session');
@@ -485,7 +410,7 @@ const App: React.FC = () => {
 
   const handleSaveSheetUrl = (url: string) => {
     setSheetUrl(url);
-    localStorage.setItem('simpdb_sheet_url', url);
+    localStorage.setItem('simpdb_api_url', url);
     fetchFromSheets(url, true);
   };
 
@@ -494,19 +419,13 @@ const App: React.FC = () => {
     setCurrentUser(user);
     setSessionMessage(null);
     localStorage.setItem('simpdb_session', JSON.stringify(user));
-    const params = new URLSearchParams(window.location.search);
-    const urlView = params.get('view') as ViewState;
-    if (urlView) {
-       setCurrentView(urlView);
-    } else {
-       setCurrentView(role === 'admin' ? 'dashboard' : 'portal');
-    }
+    window.location.hash = role === 'admin' ? 'dashboard' : 'portal';
   };
 
   const handleLogout = useCallback((isAutoLogout = false) => {
     setCurrentUser(null);
     localStorage.removeItem('simpdb_session');
-    setCurrentView('dashboard');
+    window.location.hash = ''; 
     if (isAutoLogout) setSessionMessage("Sesi Anda telah berakhir karena tidak ada aktivitas selama 10 menit.");
     else setSessionMessage(null);
   }, []);
@@ -530,14 +449,19 @@ const App: React.FC = () => {
     if (apiConnected && sheetUrl) {
       setIsSyncing(true); 
       try {
-        await fetch(sheetUrl, {
+        const response = await fetch(sheetUrl, {
           method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action, table, data: payload, id: payload.id })
         });
-        setTimeout(() => fetchFromSheets(sheetUrl, true, true), 3000); // Silent refresh after write
-      } catch(e) { } finally { }
+        if (response.ok) {
+            // Updated to perform a silent refresh after sync to keep UI updated without re-triggering loading bar
+            setTimeout(() => fetchFromSheets(sheetUrl, true, true), 1000); 
+        }
+      } catch(e) { console.error("Sync Error", e); } 
+      finally {
+        setIsSyncing(false); // FIXED: Turn off loading state regardless of outcome
+      }
     }
   };
 
@@ -545,54 +469,54 @@ const App: React.FC = () => {
     if (!apiConnected || !sheetUrl) return;
     setIsSyncing(true);
     try {
-        await fetch(sheetUrl, {
+        const response = await fetch(sheetUrl, {
           method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'bulk_add', table, data: items })
         });
-        setTimeout(() => fetchFromSheets(sheetUrl, true, true), 5000); // Silent refresh after write
-    } catch(e) { } finally { setIsSyncing(false); }
+        if (response.ok) {
+            setTimeout(() => fetchFromSheets(sheetUrl, true, true), 2000); 
+        }
+    } catch(e) { console.error("Bulk Sync Error", e); } finally { setIsSyncing(false); }
   };
 
   const getSnapshot = () => ({ courses, lecturers, rooms, schedule, classes: classNames, settings, teaching_logs: teachingLogs });
   
   // --- DATA HANDLERS ---
-  // Updated handleAddCourse to include coordinatorId
-  const handleAddCourse = (item: Omit<Course, 'id'>) => { const newItem = { ...item, id: `c-${Date.now()}`, coordinatorId: item.coordinatorId || '' }; setCourses(prev => { const n = [...prev, newItem]; saveToCache({...getSnapshot(), courses: n}); return n; }); syncData('add', 'courses', newItem); };
-  const handleEditCourse = (item: Course) => { setCourses(prev => { const n = prev.map(i => i.id === item.id ? item : i); saveToCache({...getSnapshot(), courses: n}); return n; }); syncData('update', 'courses', item); };
-  const handleDeleteCourse = (id: string) => { setCourses(prev => { const n = prev.filter(i => i.id !== id); saveToCache({...getSnapshot(), courses: n}); return n; }); syncData('delete', 'courses', { id }); };
-  const handleImportCourses = (items: Omit<Course, 'id'>[]) => { const newItems = items.map((item, index) => ({ ...item, id: `c-imp-${Date.now()}-${index}`, coordinatorId: item.coordinatorId || '' })); setCourses(prev => { const n = [...prev, ...newItems]; saveToCache({...getSnapshot(), courses: n}); return n; }); bulkSyncData('courses', newItems); };
-  const handleClearCourses = () => { setCourses([]); saveToCache({...getSnapshot(), courses: []}); syncData('clear', 'courses', {}); };
+  const handleAddCourse = (item: Omit<Course, 'id'>) => { const newItem = { ...item, id: `c-${Date.now()}`, coordinatorId: item.coordinatorId || '' }; setCourses(prev => { const n = [...prev, newItem]; saveToCache({...getSnapshot(), courses: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), courses: n}); return n; }); syncData('add', 'courses', newItem); };
+  const handleEditCourse = (item: Course) => { setCourses(prev => { const n = prev.map(i => i.id === item.id ? item : i); saveToCache({...getSnapshot(), courses: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), courses: n}); return n; }); syncData('update', 'courses', item); };
+  const handleDeleteCourse = (id: string) => { setCourses(prev => { const n = prev.filter(i => i.id !== id); saveToCache({...getSnapshot(), courses: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), courses: n}); return n; }); syncData('delete', 'courses', { id }); };
+  const handleImportCourses = (items: Omit<Course, 'id'>[]) => { const newItems = items.map((item, index) => ({ ...item, id: `c-imp-${Date.now()}-${index}`, coordinatorId: item.coordinatorId || '' })); setCourses(prev => { const n = [...prev, ...newItems]; saveToCache({...getSnapshot(), courses: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), courses: n}); return n; }); bulkSyncData('courses', newItems); };
+  const handleClearCourses = () => { setCourses([]); saveToCache({...getSnapshot(), courses: []}); previousDataRef.current = JSON.stringify({...getSnapshot(), courses: []}); syncData('clear', 'courses', {}); };
 
-  const handleAddLecturer = (item: Omit<Lecturer, 'id'>) => { const newItem = { ...item, id: `l-${Date.now()}`, nip: String(item.nip) }; setLecturers(prev => { const n = [...prev, newItem]; saveToCache({...getSnapshot(), lecturers: n}); return n; }); syncData('add', 'lecturers', newItem); };
-  const handleEditLecturer = (item: Lecturer) => { setLecturers(prev => { const n = prev.map(i => i.id === item.id ? item : i); saveToCache({...getSnapshot(), lecturers: n}); return n; }); syncData('update', 'lecturers', item); };
-  const handleDeleteLecturer = (id: string) => { setLecturers(prev => { const n = prev.filter(i => i.id !== id); saveToCache({...getSnapshot(), lecturers: n}); return n; }); syncData('delete', 'lecturers', { id }); };
-  const handleImportLecturers = (items: Omit<Lecturer, 'id'>[]) => { const newItems = items.map((item, index) => ({ ...item, id: `l-imp-${Date.now()}-${index}`, nip: String(item.nip) })); setLecturers(prev => { const n = [...prev, ...newItems]; saveToCache({...getSnapshot(), lecturers: n}); return n; }); bulkSyncData('lecturers', newItems); };
-  const handleClearLecturers = () => { setLecturers([]); saveToCache({...getSnapshot(), lecturers: []}); syncData('clear', 'lecturers', {}); };
+  const handleAddLecturer = (item: Omit<Lecturer, 'id'>) => { const newItem = { ...item, id: `l-${Date.now()}`, nip: String(item.nip) }; setLecturers(prev => { const n = [...prev, newItem]; saveToCache({...getSnapshot(), lecturers: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), lecturers: n}); return n; }); syncData('add', 'lecturers', newItem); };
+  const handleEditLecturer = (item: Lecturer) => { setLecturers(prev => { const n = prev.map(i => i.id === item.id ? item : i); saveToCache({...getSnapshot(), lecturers: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), lecturers: n}); return n; }); syncData('update', 'lecturers', item); };
+  const handleDeleteLecturer = (id: string) => { setLecturers(prev => { const n = prev.filter(i => i.id !== id); saveToCache({...getSnapshot(), lecturers: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), lecturers: n}); return n; }); syncData('delete', 'lecturers', { id }); };
+  const handleImportLecturers = (items: Omit<Lecturer, 'id'>[]) => { const newItems = items.map((item, index) => ({ ...item, id: `l-imp-${Date.now()}-${index}`, nip: String(item.nip) })); setLecturers(prev => { const n = [...prev, ...newItems]; saveToCache({...getSnapshot(), lecturers: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), lecturers: n}); return n; }); bulkSyncData('lecturers', newItems); };
+  const handleClearLecturers = () => { setLecturers([]); saveToCache({...getSnapshot(), lecturers: []}); previousDataRef.current = JSON.stringify({...getSnapshot(), lecturers: []}); syncData('clear', 'lecturers', {}); };
 
-  const handleAddRoom = (item: Omit<Room, 'id'>) => { const newItem = { ...item, id: `r-${Date.now()}` }; setRooms(prev => { const n = [...prev, newItem]; saveToCache({...getSnapshot(), rooms: n}); return n; }); syncData('add', 'rooms', newItem); };
-  const handleEditRoom = (item: Room) => { setRooms(prev => { const n = prev.map(i => i.id === item.id ? item : i); saveToCache({...getSnapshot(), rooms: n}); return n; }); syncData('update', 'rooms', item); };
-  const handleDeleteRoom = (id: string) => { setRooms(prev => { const n = prev.filter(i => i.id !== id); saveToCache({...getSnapshot(), rooms: n}); return n; }); syncData('delete', 'rooms', { id }); };
-  const handleImportRooms = (items: Omit<Room, 'id'>[]) => { const newItems = items.map((item, index) => ({ ...item, id: `r-imp-${Date.now()}-${index}` })); setRooms(prev => { const n = [...prev, ...newItems]; saveToCache({...getSnapshot(), rooms: n}); return n; }); bulkSyncData('rooms', newItems); };
-  const handleClearRooms = () => { setRooms([]); saveToCache({...getSnapshot(), rooms: []}); syncData('clear', 'rooms', {}); };
+  const handleAddRoom = (item: Omit<Room, 'id'>) => { const newItem = { ...item, id: `r-${Date.now()}` }; setRooms(prev => { const n = [...prev, newItem]; saveToCache({...getSnapshot(), rooms: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), rooms: n}); return n; }); syncData('add', 'rooms', newItem); };
+  const handleEditRoom = (item: Room) => { setRooms(prev => { const n = prev.map(i => i.id === item.id ? item : i); saveToCache({...getSnapshot(), rooms: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), rooms: n}); return n; }); syncData('update', 'rooms', item); };
+  const handleDeleteRoom = (id: string) => { setRooms(prev => { const n = prev.filter(i => i.id !== id); saveToCache({...getSnapshot(), rooms: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), rooms: n}); return n; }); syncData('delete', 'rooms', { id }); };
+  const handleImportRooms = (items: Omit<Room, 'id'>[]) => { const newItems = items.map((item, index) => ({ ...item, id: `r-imp-${Date.now()}-${index}` })); setRooms(prev => { const n = [...prev, ...newItems]; saveToCache({...getSnapshot(), rooms: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), rooms: n}); return n; }); bulkSyncData('rooms', newItems); };
+  const handleClearRooms = () => { setRooms([]); saveToCache({...getSnapshot(), rooms: []}); previousDataRef.current = JSON.stringify({...getSnapshot(), rooms: []}); syncData('clear', 'rooms', {}); };
 
-  const handleAddClass = (item: Omit<ClassName, 'id'>) => { const newItem = { ...item, id: `cls-${Date.now()}` }; setClassNames(prev => { const n = [...prev, newItem]; saveToCache({...getSnapshot(), classes: n}); return n; }); syncData('add', 'classes', newItem); };
-  const handleEditClass = (item: ClassName) => { setClassNames(prev => { const n = prev.map(i => i.id === item.id ? item : i); saveToCache({...getSnapshot(), classes: n}); return n; }); syncData('update', 'classes', item); };
-  const handleDeleteClass = (id: string) => { setClassNames(prev => { const n = prev.filter(i => i.id !== id); saveToCache({...getSnapshot(), classes: n}); return n; }); syncData('delete', 'classes', { id }); };
-  const handleImportClasses = (items: Omit<ClassName, 'id'>[]) => { const newItems = items.map((item, index) => ({ ...item, id: `cls-imp-${Date.now()}-${index}` })); setClassNames(prev => { const n = [...prev, ...newItems]; saveToCache({...getSnapshot(), classes: n}); return n; }); bulkSyncData('classes', newItems); };
-  const handleClearClasses = () => { setClassNames([]); saveToCache({...getSnapshot(), classes: []}); syncData('clear', 'classes', {}); };
+  const handleAddClass = (item: Omit<ClassName, 'id'>) => { const newItem = { ...item, id: `cls-${Date.now()}` }; setClassNames(prev => { const n = [...prev, newItem]; saveToCache({...getSnapshot(), classes: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), classes: n}); return n; }); syncData('add', 'classes', newItem); };
+  const handleEditClass = (item: ClassName) => { setClassNames(prev => { const n = prev.map(i => i.id === item.id ? item : i); saveToCache({...getSnapshot(), classes: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), classes: n}); return n; }); syncData('update', 'classes', item); };
+  const handleDeleteClass = (id: string) => { setClassNames(prev => { const n = prev.filter(i => i.id !== id); saveToCache({...getSnapshot(), classes: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), classes: n}); return n; }); syncData('delete', 'classes', { id }); };
+  const handleImportClasses = (items: Omit<ClassName, 'id'>[]) => { const newItems = items.map((item, index) => ({ ...item, id: `cls-imp-${Date.now()}-${index}` })); setClassNames(prev => { const n = [...prev, ...newItems]; saveToCache({...getSnapshot(), classes: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), classes: n}); return n; }); bulkSyncData('classes', newItems); };
+  const handleClearClasses = () => { setClassNames([]); saveToCache({...getSnapshot(), classes: []}); previousDataRef.current = JSON.stringify({...getSnapshot(), classes: []}); syncData('clear', 'classes', {}); };
 
-  const syncAddSchedule = (item: ScheduleItem) => { setSchedule(prev => { const n = [...prev, item]; saveToCache({...getSnapshot(), schedule: n}); return n; }); syncData('add', 'schedule', item); };
-  const syncEditSchedule = (item: ScheduleItem) => { setSchedule(prev => { const n = prev.map(s => s.id === item.id ? item : s); saveToCache({...getSnapshot(), schedule: n}); return n; }); syncData('update', 'schedule', item); };
-  const syncDeleteSchedule = (id: string) => { setSchedule(prev => { const n = prev.filter(s => s.id !== id); saveToCache({...getSnapshot(), schedule: n}); return n; }); syncData('delete', 'schedule', { id }); };
-  const handleImportSchedule = (items: ScheduleItem[]) => { setSchedule(prev => { const n = [...prev, ...items]; saveToCache({...getSnapshot(), schedule: n}); return n; }); bulkSyncData('schedule', items); };
+  const syncAddSchedule = (item: ScheduleItem) => { setSchedule(prev => { const n = [...prev, item]; saveToCache({...getSnapshot(), schedule: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), schedule: n}); return n; }); syncData('add', 'schedule', item); };
+  const syncEditSchedule = (item: ScheduleItem) => { setSchedule(prev => { const n = prev.map(s => s.id === item.id ? item : s); saveToCache({...getSnapshot(), schedule: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), schedule: n}); return n; }); syncData('update', 'schedule', item); };
+  const syncDeleteSchedule = (id: string) => { setSchedule(prev => { const n = prev.filter(s => s.id !== id); saveToCache({...getSnapshot(), schedule: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), schedule: n}); return n; }); syncData('delete', 'schedule', { id }); };
+  const handleImportSchedule = (items: ScheduleItem[]) => { setSchedule(prev => { const n = [...prev, ...items]; saveToCache({...getSnapshot(), schedule: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), schedule: n}); return n; }); bulkSyncData('schedule', items); };
   
   const handleTeamTeachingUpdate = (scheduleId: string, newLecturerIds: string[], pjmkId?: string) => {
     const item = schedule.find(s => s.id === scheduleId);
     if (item) {
         const updatedItem = { ...item, lecturerIds: newLecturerIds, pjmkLecturerId: pjmkId || item.pjmkLecturerId };
-        setSchedule(prev => { const n = prev.map(s => s.id === scheduleId ? updatedItem : s); saveToCache({...getSnapshot(), schedule: n}); return n; });
+        setSchedule(prev => { const n = prev.map(s => s.id === scheduleId ? updatedItem : s); saveToCache({...getSnapshot(), schedule: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), schedule: n}); return n; });
         syncData('update', 'schedule', updatedItem);
     }
   };
@@ -602,7 +526,7 @@ const App: React.FC = () => {
     const existingSetting = settings.find(s => s.key === 'schedule_lock');
     const settingId = existingSetting ? existingSetting.id : 'lock_setting';
     const settingItem = { id: settingId, key: 'schedule_lock', value: newStatus ? 'true' : 'false' };
-    setSettings(prev => { const n = [...prev.filter(s => s.key !== 'schedule_lock'), settingItem]; saveToCache({...getSnapshot(), settings: n}); return n; });
+    setSettings(prev => { const n = [...prev.filter(s => s.key !== 'schedule_lock'), settingItem]; saveToCache({...getSnapshot(), settings: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), settings: n}); return n; });
     syncData('update', 'settings', settingItem);
   };
 
@@ -610,20 +534,25 @@ const App: React.FC = () => {
     const lecturer = lecturers.find(l => l.id === lecturerId);
     if (lecturer) {
         const updatedLecturer = { ...lecturer, password: newPass };
-        setLecturers(prev => { const n = prev.map(l => l.id === lecturerId ? updatedLecturer : l); saveToCache({...getSnapshot(), lecturers: n}); return n; });
+        setLecturers(prev => { const n = prev.map(l => l.id === lecturerId ? updatedLecturer : l); saveToCache({...getSnapshot(), lecturers: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), lecturers: n}); return n; });
         syncData('update', 'lecturers', updatedLecturer);
     }
   };
 
   const handleAddLog = (log: TeachingLog) => {
+     // FIX: Generate MySQL compatible timestamp (YYYY-MM-DD HH:MM:SS) using local time
+     const now = new Date();
+     const pad = (num: number) => num.toString().padStart(2, '0');
+     const formattedTimestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+
      const existingLog = teachingLogs.find(l => l.scheduleId === log.scheduleId && l.lecturerId === log.lecturerId && l.week === log.week);
      if (existingLog) {
-        const updatedLog = { ...existingLog, date: log.date, timestamp: new Date().toISOString() };
-        setTeachingLogs(prev => { const n = prev.map(l => l.id === existingLog.id ? updatedLog : l); saveToCache({...getSnapshot(), teaching_logs: n}); return n; });
+        const updatedLog = { ...existingLog, date: log.date, timestamp: formattedTimestamp };
+        setTeachingLogs(prev => { const n = prev.map(l => l.id === existingLog.id ? updatedLog : l); saveToCache({...getSnapshot(), teaching_logs: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), teaching_logs: n}); return n; });
         syncData('update', 'teaching_logs', updatedLog);
      } else {
-        const newLog = { ...log, id: `log-${Date.now()}-${Math.random()}` };
-        setTeachingLogs(prev => { const n = [...prev, newLog]; saveToCache({...getSnapshot(), teaching_logs: n}); return n; });
+        const newLog = { ...log, id: `log-${Date.now()}-${Math.random()}`, timestamp: formattedTimestamp };
+        setTeachingLogs(prev => { const n = [...prev, newLog]; saveToCache({...getSnapshot(), teaching_logs: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), teaching_logs: n}); return n; });
         syncData('add', 'teaching_logs', newLog);
      }
   };
@@ -631,7 +560,7 @@ const App: React.FC = () => {
   const handleRemoveLog = (scheduleId: string, lecturerId: string, week: number) => {
      const logToRemove = teachingLogs.find(l => l.scheduleId === scheduleId && l.lecturerId === lecturerId && l.week === week);
      if (logToRemove) {
-        setTeachingLogs(prev => { const n = prev.filter(l => l.id !== logToRemove.id); saveToCache({...getSnapshot(), teaching_logs: n}); return n; });
+        setTeachingLogs(prev => { const n = prev.filter(l => l.id !== logToRemove.id); saveToCache({...getSnapshot(), teaching_logs: n}); previousDataRef.current = JSON.stringify({...getSnapshot(), teaching_logs: n}); return n; });
         syncData('delete', 'teaching_logs', { id: logToRemove.id });
      }
   };
@@ -659,9 +588,12 @@ const App: React.FC = () => {
   const renderContent = () => {
     if (isLoading) {
       return (
-        <div className="flex flex-col h-full items-center justify-center text-slate-500 gap-4 animate-fade-in">
-          <Loader2 className="animate-spin text-primary-600" size={48} />
-          <p className="font-medium text-lg">Memuat Sistem...</p>
+        <div className="flex flex-col h-full items-center justify-center text-slate-500 gap-6 animate-fade-in">
+          <img src="https://ppk2ipe.unair.ac.id/gambar/UNAIR_BRANDMARK_2025-02.png" alt="Logo" className="w-32 h-auto animate-pulse" />
+          <div className="flex items-center gap-3">
+             <Loader2 className="animate-spin text-primary-600" size={24} />
+             <p className="font-medium text-lg">Memuat Sistem...</p>
+          </div>
         </div>
       );
     }
@@ -1010,8 +942,8 @@ const App: React.FC = () => {
         </div>
         
         <div className="md:hidden bg-white/80 backdrop-blur-md border-b border-slate-200 p-4 flex items-center justify-between z-10 sticky top-0">
-          <div className="font-bold text-slate-800 flex items-center gap-2">
-            <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center"><CalendarClock size={20} className="text-white" /></div>
+          <div className="font-bold text-slate-800 flex items-center gap-3">
+            <img src="https://ppk2ipe.unair.ac.id/gambar/UNAIR_BRANDMARK_2025-02.png" alt="Logo" className="w-8 h-8 object-contain" />
             SIMPDB
           </div>
           <button onClick={() => setSidebarOpen(true)} className="text-slate-600"><Menu size={24} /></button>
@@ -1024,6 +956,20 @@ const App: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* REALTIME TOAST NOTIFICATION */}
+        {realtimeNotification && (
+            <div className="fixed top-24 right-6 z-[100] bg-slate-800 text-white px-5 py-3 rounded-xl shadow-2xl animate-slide-down flex items-center gap-3 border border-slate-700">
+                <div className="bg-emerald-500/20 p-1.5 rounded-full relative">
+                    <span className="absolute inset-0 bg-emerald-400 rounded-full animate-ping opacity-75"></span>
+                    <Wifi className="text-emerald-400 relative z-10" size={18} />
+                </div>
+                <div>
+                    <h4 className="font-bold text-xs text-white">Sinkronisasi Otomatis</h4>
+                    <p className="text-[10px] text-slate-300">Data diperbarui dari server.</p>
+                </div>
+            </div>
+        )}
 
         {passModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 pt-10 sm:pt-20">

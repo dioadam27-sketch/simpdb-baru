@@ -39,11 +39,10 @@ const LecturerPortal: React.FC<LecturerPortalProps> = ({
   const [selectedLecturerId, setSelectedLecturerId] = useState<string>(currentLecturerId || '');
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   
-  // Search states for custom dropdown
+  // Search states for custom modal
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
+  
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     type: 'claim_pjmk' | 'join_team' | 'release';
@@ -86,22 +85,15 @@ const LecturerPortal: React.FC<LecturerPortalProps> = ({
   // Is Attendance Editable? Only if user is ADMIN.
   const isAttendanceEditable = userRole === 'admin';
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsSearchOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   useEffect(() => {
     if (currentLecturerId) {
       setSelectedLecturerId(currentLecturerId);
     }
   }, [currentLecturerId]);
+
+  // Cleanup scroll listener is not needed for centered modal as strictly as for fixed positioning, 
+  // but good to close on resize if layout breaks, though standard modal behavior handles it.
+  // We can remove the complex listener.
 
   // SORTED LECTURERS (A-Z)
   const sortedLecturers = useMemo(() => {
@@ -280,9 +272,6 @@ const LecturerPortal: React.FC<LecturerPortalProps> = ({
      
      const existingLog = teachingLogs.find(l => l.scheduleId === attendanceModal.item!.id && l.lecturerId === selectedLecturerId && l.week === week);
      
-     // If not admin and log exists, just show detail
-     // If admin, open edit modal
-     
      setDetailModal({
          isOpen: true,
          week,
@@ -337,9 +326,14 @@ const LecturerPortal: React.FC<LecturerPortalProps> = ({
      );
   };
 
+  // Open Search Modal
+  const openSearch = () => {
+    setIsSearchOpen(true);
+    setSearchTerm('');
+  };
+
   return (
     <div className="space-y-6 relative pb-12">
-      {/* ... (Previous Header and Stat Code same as before) ... */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-2 gap-4">
         <div className="flex items-center gap-3">
           <div className="bg-blue-100 p-3 rounded-2xl text-blue-600 shadow-sm"><User size={28} /></div>
@@ -368,74 +362,85 @@ const LecturerPortal: React.FC<LecturerPortalProps> = ({
          <StatCard title="Total Jadwal" value={schedule.length} icon={Calendar} color="text-purple-500" />
       </div>
       
-      {/* ... (Existing logic for Lock, Simulation Mode, Stats etc.) ... */}
-      
       {!currentLecturerId && (
-        <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex flex-col md:flex-row items-start md:items-center gap-4 animate-fade-in shadow-sm relative mt-4">
-          <div className="flex items-center gap-3 flex-1">
-            <div className="bg-amber-100 p-2 rounded-lg text-amber-700 shrink-0"><AlertTriangle size={20} /></div>
-            <div>
-              <p className="text-xs font-bold text-amber-800 uppercase tracking-tight">Simulasi Mode Admin</p>
-              <p className="text-[11px] text-amber-700">Pilih identitas dosen untuk mencoba fitur klaim jadwal.</p>
-            </div>
-          </div>
-          
-          <div className="relative w-full md:w-80" ref={dropdownRef}>
-            <div 
-              onClick={() => setIsSearchOpen(!isSearchOpen)}
-              className="flex items-center justify-between bg-white border border-amber-300 rounded-xl px-4 py-2.5 cursor-pointer shadow-sm hover:border-amber-400 transition-all"
-            >
-              <div className="flex items-center gap-2 overflow-hidden">
-                <Search size={16} className="text-amber-500 shrink-0" />
-                <span className="text-sm font-semibold text-slate-700 truncate">
-                  {selectedLecturerId ? currentLecturerName : '-- Pilih Dosen (Cari Nama/NIP) --'}
-                </span>
-              </div>
-              <ChevronDown size={18} className={`text-amber-500 transition-transform ${isSearchOpen ? 'rotate-180' : ''}`} />
-            </div>
-
-            {isSearchOpen && (
-              <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-[60] overflow-hidden animate-zoom-in">
-                <div className="p-3 border-b border-slate-100">
-                  <div className="relative">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input 
-                      autoFocus
-                      type="text"
-                      placeholder="Ketik nama atau NIP..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 transition-all"
-                    />
-                  </div>
+        <>
+            {/* Info Box (Separate from Search) - COMPACT VERSION */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex flex-col sm:flex-row items-center gap-3 animate-fade-in mt-4">
+                <div className="bg-amber-100 p-2 rounded-lg text-amber-700 shrink-0">
+                    <AlertTriangle size={20} />
                 </div>
-                <div className="max-h-60 overflow-y-auto custom-scrollbar">
-                  {filteredLecturerOptions.length > 0 ? (
-                    filteredLecturerOptions.map(l => (
-                      <div 
-                        key={l.id}
-                        onClick={() => {
-                          setSelectedLecturerId(l.id);
-                          setSelectedCourseId(null);
-                          setIsSearchOpen(false);
-                          setSearchTerm('');
-                        }}
-                        className={`px-4 py-2.5 hover:bg-amber-50 cursor-pointer transition-colors border-l-4 ${selectedLecturerId === l.id ? 'border-amber-500 bg-amber-50/50' : 'border-transparent'}`}
-                      >
-                        <div className="text-sm font-bold text-slate-800">{l.name}</div>
-                        <div className="text-[10px] text-slate-500">NIP: {l.nip} • {l.position}</div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="px-4 py-6 text-center text-slate-400 text-xs italic">
-                      Dosen tidak ditemukan...
+                <div className="text-center sm:text-left">
+                    <h3 className="font-bold text-amber-900 text-xs uppercase tracking-wide">Simulasi Mode Admin</h3>
+                    <p className="text-amber-800 text-[11px] mt-0.5">
+                        Pilih identitas dosen untuk mencoba fitur.
+                    </p>
+                </div>
+            </div>
+            
+            {/* Search Box Trigger - COMPACT */}
+            <div className="mt-3">
+                <div 
+                    onClick={openSearch}
+                    className="flex items-center justify-between bg-white border border-slate-300 rounded-xl px-3 py-2.5 cursor-pointer shadow-sm hover:border-blue-400 hover:shadow-md transition-all group select-none"
+                >
+                    <div className="flex items-center gap-2 overflow-hidden">
+                        <Search size={16} className="text-slate-400 group-hover:text-blue-500 transition-colors" />
+                        <span className={`text-sm font-bold ${selectedLecturerId ? 'text-slate-800' : 'text-slate-400'}`}>
+                            {selectedLecturerId ? currentLecturerName : 'Cari Nama Dosen atau NIP...'}
+                        </span>
                     </div>
-                  )}
+                    <ChevronDown size={16} className="text-slate-400" />
                 </div>
-              </div>
-            )}
-          </div>
-        </div>
+
+                {/* Centered Modal for Search (Pop Up) */}
+                {isSearchOpen && (
+                    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-24 px-4">
+                        {/* Backdrop - slightly visible to capture focus, click to close */}
+                        <div className="absolute inset-0 bg-slate-900/10 backdrop-blur-[1px]" onClick={() => setIsSearchOpen(false)}></div>
+                        
+                        <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-zoom-in relative z-10 flex flex-col">
+                            {/* Search Header */}
+                            <div className="p-3 border-b border-slate-100 flex items-center gap-3 bg-slate-50/80">
+                                <Search size={18} className="text-slate-400 ml-1 shrink-0" />
+                                <input
+                                    autoFocus
+                                    type="text"
+                                    className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-slate-800 placeholder:text-slate-400 h-9"
+                                    placeholder="Ketik nama dosen..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
+                                <button onClick={() => setIsSearchOpen(false)} className="p-1.5 hover:bg-slate-200 rounded-full transition-colors"><X size={18} className="text-slate-400"/></button>
+                            </div>
+                            
+                            {/* List Results */}
+                            <div className="max-h-[300px] overflow-y-auto custom-scrollbar p-2 bg-white">
+                                {filteredLecturerOptions.length > 0 ? (
+                                    filteredLecturerOptions.map(l => (
+                                        <div 
+                                            key={l.id}
+                                            onClick={() => {
+                                                setSelectedLecturerId(l.id);
+                                                setSelectedCourseId(null);
+                                                setIsSearchOpen(false);
+                                            }}
+                                            className={`px-3 py-2.5 hover:bg-blue-50 cursor-pointer rounded-xl transition-all border border-transparent hover:border-blue-100 mb-1 ${selectedLecturerId === l.id ? 'bg-blue-50 border-blue-200' : ''}`}
+                                        >
+                                            <div className="font-bold text-slate-800 text-sm">{l.name}</div>
+                                            <div className="text-[10px] text-slate-500 mt-0.5">{l.nip} • {l.position}</div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="p-8 text-center text-slate-400 text-xs italic">
+                                        Data tidak ditemukan.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </>
       )}
 
       {selectedLecturerId && (
@@ -484,6 +489,7 @@ const LecturerPortal: React.FC<LecturerPortalProps> = ({
         </div>
       )}
 
+      {/* ... Rest of component remains same ... */}
       {!selectedLecturerId ? (
          <div className="bg-white rounded-2xl p-20 text-center shadow-sm border border-slate-200 mt-6">
            <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
@@ -513,7 +519,6 @@ const LecturerPortal: React.FC<LecturerPortalProps> = ({
             <div className="min-h-[500px] animate-fade-in mt-6">
                 {activeTab === 'available' && (
                     <div className="space-y-6">
-                         {/* ... (Existing code for Available Tab - No changes needed) ... */}
                         {!selectedCourseId ? (
                             <div className="space-y-6">
                                 <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -700,6 +705,7 @@ const LecturerPortal: React.FC<LecturerPortalProps> = ({
         </>
       )}
 
+      {/* Confirmation and Alert Modals are same as original ... */}
       {/* ATTENDANCE MODAL (LIST OF WEEKS) */}
       {attendanceModal.isOpen && attendanceModal.item && (
           <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 pt-10 sm:pt-20">

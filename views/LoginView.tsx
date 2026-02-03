@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Lock, User, ShieldCheck, CalendarClock, AlertTriangle, RefreshCw, Loader2, ArrowRight, LayoutGrid } from 'lucide-react';
 import { Lecturer, UserRole } from '../types';
@@ -80,8 +81,8 @@ const LoginView: React.FC<LoginViewProps> = ({ lecturers, onLogin, onSync, sessi
            
            <div className="relative z-10">
              <div className="flex items-center gap-3 font-bold text-xl tracking-tight mb-8">
-               <div className="w-10 h-10 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center border border-white/20">
-                 <CalendarClock size={22} className="text-white" />
+               <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg overflow-hidden p-1.5">
+                 <img src="https://ppk2ipe.unair.ac.id/gambar/UNAIR_BRANDMARK_2025-02.png" alt="Logo" className="w-full h-full object-contain" />
                </div>
                SIMPDB
              </div>
