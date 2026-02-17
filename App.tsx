@@ -15,8 +15,8 @@ import AttendanceAdminView from './views/AttendanceAdminView';
 import { Course, Lecturer, Room, ScheduleItem, ViewState, User, UserRole, ClassName, AppSetting, TeachingLog } from './types';
 import * as XLSX from 'xlsx';
 
-// UPDATED BACKEND URL (PHP API)
-const DEFAULT_SHEET_URL = 'https://pkkii.pendidikan.unair.ac.id/simpdbapi/api.php';
+// UPDATED BACKEND URL (PHP API) - Adjusted for /simpdb/ subfolder deployment
+const DEFAULT_SHEET_URL = 'https://pkkii.pendidikan.unair.ac.id/simpdb/backend/api.php';
 const CACHE_KEY = 'simpdb_data_cache_v5_api_php'; // Updated cache key
 const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 Minutes
 const POLLING_INTERVAL = 3000; // Poll every 3 seconds for real-time sync
