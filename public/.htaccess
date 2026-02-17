@@ -2,18 +2,18 @@
 <IfModule mod_rewrite.c>
   RewriteEngine On
   
-  # Jika aplikasi diupload ke subfolder (misal: domain.com/app/), ubah baris bawah menjadi: RewriteBase /app/
-  RewriteBase /
+  # Konfigurasi untuk deploy di folder /simpdb/
+  # Mengarahkan base rewrite ke folder aplikasi, bukan root domain
+  RewriteBase /simpdb/
 
   # ATURAN 1: Izinkan akses langsung ke file atau folder yang benar-benar ada
-  # Ini SANGAT PENTING agar api.php, gambar, css, dan js tetap bisa diakses dan tidak diredirect ke React
+  # Ini SANGAT PENTING agar api.php, gambar, css, dan js tetap bisa diakses
   RewriteCond %{REQUEST_FILENAME} -f [OR]
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteRule ^ - [L]
 
   # ATURAN 2: Redirect semua request sisa ke index.html
-  # Jika file tidak ditemukan (misal user akses /dashboard), server akan memuat index.html
-  # sehingga React Router bisa mengambil alih dan menampilkan halaman yang benar.
+  # Jika file tidak ditemukan, server akan memuat index.html di dalam folder simpdb
   RewriteRule ^ index.html [L]
 </IfModule>
 
