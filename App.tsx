@@ -15,11 +15,11 @@ import AttendanceAdminView from './views/AttendanceAdminView';
 import { Course, Lecturer, Room, ScheduleItem, ViewState, User, UserRole, ClassName, AppSetting, TeachingLog } from './types';
 import * as XLSX from 'xlsx';
 
-// UPDATED BACKEND URL (PHP API) - Adjusted for /simpdb/ subfolder deployment
+// UPDATED BACKEND URL (PHP API)
 const DEFAULT_SHEET_URL = 'https://pkkii.pendidikan.unair.ac.id/simpdb/backend/api.php';
-const CACHE_KEY = 'simpdb_data_cache_v5_api_php'; // Updated cache key
+const CACHE_KEY = 'simpdb_data_cache_v10_prod'; // Incremented cache key
 const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 Minutes
-const POLLING_INTERVAL = 3000; // Poll every 3 seconds for real-time sync
+const POLLING_INTERVAL = 2000; // Poll every 2 seconds for faster multi-device sync
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -99,15 +99,15 @@ const App: React.FC = () => {
   const [statsMode, setStatsMode] = useState<'all' | 'active'>('active');
   const [coordDetailOpen, setCoordDetailOpen] = useState(false);
 
-  // Initialize URL - Force update if it doesn't match the new default
+  // Initialize URL - Force update to DEFAULT for this deployment to fix caching issues
   const [sheetUrl, setSheetUrl] = useState<string>(() => {
-    const stored = localStorage.getItem('simpdb_api_url');
-    // If stored is old google script or empty, update to new API
-    if (!stored || stored.includes('script.google.com')) {
-       localStorage.setItem('simpdb_api_url', DEFAULT_SHEET_URL);
-       return DEFAULT_SHEET_URL;
+    // Check if user has manually set a URL, otherwise use default
+    const saved = localStorage.getItem('simpdb_api_url');
+    // If saved is the old Google Script or Absolute URL, reset to relative for robustness
+    if (saved && (saved.includes('script.google') || saved.includes('http'))) {
+        return DEFAULT_SHEET_URL; 
     }
-    return stored;
+    return saved || DEFAULT_SHEET_URL;
   });
 
   // --- AUTO POLLING FOR REAL-TIME SYNC ---
@@ -299,7 +299,15 @@ const App: React.FC = () => {
       const nocacheParam = forceRefresh ? '&nocache=true' : '';
       const fetchUrl = `${cleanUrl}${separator}t=${new Date().getTime()}${nocacheParam}`;
       
-      const response = await fetch(fetchUrl);
+      const response = await fetch(fetchUrl, {
+        headers: {
+            // STRICT NO CACHE HEADERS
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+        }
+      });
+      
       if (!response.ok) throw new Error(`Server error: ${response.status} ${response.statusText}`);
       
       const data = await response.json();
@@ -373,6 +381,7 @@ const App: React.FC = () => {
       if (!silent) {
           setApiConnected(false);
           let msg = error.message === 'Failed to fetch' ? "Koneksi internet bermasalah." : error.message;
+          console.error("Fetch Error:", error, "URL:", url); 
           setErrorSync(msg);
       }
     } finally {
@@ -456,7 +465,7 @@ const App: React.FC = () => {
         });
         if (response.ok) {
             // Updated to perform a silent refresh after sync to keep UI updated without re-triggering loading bar
-            setTimeout(() => fetchFromSheets(sheetUrl, true, true), 1000); 
+            setTimeout(() => fetchFromSheets(sheetUrl, true, true), 500); 
         }
       } catch(e) { console.error("Sync Error", e); } 
       finally {
@@ -475,7 +484,7 @@ const App: React.FC = () => {
           body: JSON.stringify({ action: 'bulk_add', table, data: items })
         });
         if (response.ok) {
-            setTimeout(() => fetchFromSheets(sheetUrl, true, true), 2000); 
+            setTimeout(() => fetchFromSheets(sheetUrl, true, true), 1000); 
         }
     } catch(e) { console.error("Bulk Sync Error", e); } finally { setIsSyncing(false); }
   };
